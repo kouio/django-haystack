@@ -466,8 +466,8 @@ class ElasticsearchSearchBackend(BaseSearchBackend):
                 'hits': 0,
             }
 
-        if not self.setup_complete:
-            self.setup()
+        # if not self.setup_complete:
+        #     self.setup()
 
         search_kwargs = self.build_search_kwargs(query_string, **kwargs)
         search_kwargs['from'] = kwargs.get('start_offset', 0)
