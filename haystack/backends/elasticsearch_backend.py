@@ -26,6 +26,8 @@ DATETIME_REGEX = re.compile(
     r'^(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})T'
     r'(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})(\.\d+)?$')
 
+SOURCE_DISABLED = getattr(settings, "HAYSTACK_ELASTICSEARCH_SOURCE_DISABLED", False)
+
 
 class ElasticsearchSearchBackend(BaseSearchBackend):
     # Word reserved by Elasticsearch for special use.
@@ -120,6 +122,7 @@ class ElasticsearchSearchBackend(BaseSearchBackend):
         self.content_field_name, field_mapping = self.build_schema(unified_index.all_searchfields())
         current_mapping = {
             'modelresult': {
+                '_source': {'enabled': not SOURCE_DISABLED},
                 'properties': field_mapping,
                 '_boost': {
                     'name': 'boost',
@@ -272,8 +275,11 @@ class ElasticsearchSearchBackend(BaseSearchBackend):
         if fields:
             if isinstance(fields, (list, set)):
                 fields = " ".join(fields)
-
-            kwargs['fields'] = fields
+        fields = set(fields.split(" ")) if fields else set()
+        if SOURCE_DISABLED:
+            fields |= set([DJANGO_CT, DJANGO_ID])
+        if fields:
+            kwargs['fields'] = list(fields)
 
         if sort_by is not None:
             order_list = []
@@ -573,7 +579,12 @@ class ElasticsearchSearchBackend(BaseSearchBackend):
         content_field = unified_index.document_field
 
         for raw_result in raw_results.get('hits', {}).get('hits', []):
-            source = raw_result['_source']
+            source = raw_result.get('_source', {})
+            if SOURCE_DISABLED:
+                source = {
+                    DJANGO_CT: raw_result["fields"][DJANGO_CT],
+                    DJANGO_ID: raw_result["fields"][DJANGO_ID],
+                }
             app_label, model_name = source[DJANGO_CT].split('.')
             additional_fields = {}
             model = get_model(app_label, model_name)
@@ -618,6 +629,11 @@ class ElasticsearchSearchBackend(BaseSearchBackend):
     def build_schema(self, fields):
         content_field_name = ''
         mapping = {}
+        if SOURCE_DISABLED:
+            mapping = {
+                DJANGO_ID: {'store': 'yes', 'type': 'string'},
+                DJANGO_CT: {'store': 'yes', 'type': 'string'},
+            }
 
         for field_name, field_class in fields.items():
             field_mapping = {
